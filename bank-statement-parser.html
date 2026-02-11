@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bank Statement Parser</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs" type="module"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f5f7fa;
+    --surface: #ffffff;
+    --border: #d1d9e6;
+    --text: #1a2332;
+    --text-muted: #5a6b80;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --danger: #dc2626;
+    --success: #16a34a;
+    --withdrawal-bg: #fef2f2;
+    --withdrawal-header: #dc2626;
+    --deposit-bg: #f0fdf4;
+    --deposit-header: #16a34a;
+    --radius: 8px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+    padding: 20px;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 1.6rem;
+    margin-bottom: 4px;
+  }
+
+  .subtitle {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-bottom: 24px;
+  }
+
+  /* Drop Zone */
+  #drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 48px 24px;
+    text-align: center;
+    background: var(--surface);
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    max-width: 600px;
+    margin: 0 auto 24px;
+  }
+
+  #drop-zone.drag-over {
+    border-color: var(--accent);
+    background: #eff6ff;
+  }
+
+  #drop-zone p { color: var(--text-muted); margin-top: 8px; }
+  #drop-zone .icon { font-size: 2.5rem; }
+
+  #file-input { display: none; }
+
+  /* Status */
+  #status {
+    text-align: center;
+    padding: 12px;
+    margin-bottom: 16px;
+    border-radius: var(--radius);
+    display: none;
+  }
+
+  #status.info { display: block; background: #eff6ff; color: #1e40af; }
+  #status.error { display: block; background: #fef2f2; color: #dc2626; }
+  #status.success { display: block; background: #f0fdf4; color: #16a34a; }
+
+  /* Column Mapping */
+  #column-mapping {
+    display: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 24px;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  #column-mapping h3 { margin-bottom: 12px; font-size: 1rem; }
+
+  .mapping-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+
+  .mapping-row label {
+    min-width: 100px;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+
+  .mapping-row select {
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    flex: 1;
+    max-width: 300px;
+  }
+
+  .mapping-actions {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+  }
+
+  /* Tables Section */
+  #tables-section { display: none; }
+
+  .table-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 24px;
+    overflow: hidden;
+  }
+
+  .table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .table-header h2 {
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .table-header .count {
+    font-weight: normal;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  .withdrawal-table .table-header { background: var(--withdrawal-bg); }
+  .deposit-table .table-header { background: var(--deposit-bg); }
+
+  .table-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .table-wrapper {
+    overflow-x: auto;
+    max-height: 500px;
+    overflow-y: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+    border-bottom: 2px solid var(--border);
+    z-index: 1;
+  }
+
+  tbody td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #eef1f6;
+  }
+
+  tbody tr:hover { background: #f8fafc; }
+
+  td[contenteditable] {
+    outline: none;
+    cursor: text;
+  }
+
+  td[contenteditable]:focus {
+    background: #eff6ff;
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+
+  td.cost { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .row-delete {
+    background: none;
+    border: none;
+    color: #aaa;
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .row-delete:hover { color: var(--danger); background: var(--withdrawal-bg); }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    background: var(--surface);
+    color: var(--text);
+    transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+
+  .btn:hover { background: var(--bg); border-color: #b0bdd0; }
+
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+
+  .btn-primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+
+  .btn-sm { padding: 5px 10px; font-size: 0.78rem; }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: #1a2332;
+    color: white;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s;
+    z-index: 1000;
+  }
+
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  /* Footer */
+  .privacy-note {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    margin-top: 24px;
+    padding: 12px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Bank Statement Parser</h1>
+<p class="subtitle">Extract transactions from PDF bank statements. Everything runs in your browser &mdash; your file never leaves your computer.</p>
+
+<div id="drop-zone">
+  <div class="icon">&#128196;</div>
+  <p><strong>Drag &amp; drop a PDF here</strong> or click to browse</p>
+  <p style="font-size:0.8rem;">Supports TD, RBC, BMO, Scotiabank, and more</p>
+  <input type="file" id="file-input" accept=".pdf,application/pdf">
+</div>
+
+<div id="status"></div>
+
+<div id="column-mapping">
+  <h3>Column Mapping</h3>
+  <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">
+    We detected these columns. Adjust if needed:
+  </p>
+  <div id="mapping-fields"></div>
+  <div class="mapping-actions">
+    <button class="btn btn-primary" onclick="applyMapping()">Apply &amp; Parse</button>
+    <button class="btn" onclick="resetMapping()">Auto-detect Again</button>
+  </div>
+</div>
+
+<div id="tables-section">
+  <div class="table-container withdrawal-table">
+    <div class="table-header">
+      <h2 style="color:var(--withdrawal-header)">
+        Withdrawals <span class="count" id="withdrawal-count"></span>
+      </h2>
+      <div class="table-actions">
+        <button class="btn btn-sm" onclick="addRow('withdrawals')">+ Add Row</button>
+        <button class="btn btn-sm" onclick="copyTable('withdrawals')">Copy</button>
+        <button class="btn btn-sm" onclick="downloadCSV('withdrawals')">Download CSV</button>
+      </div>
+    </div>
+    <div class="table-wrapper">
+      <table id="withdrawals-table">
+        <thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Amount</th><th style="width:36px"></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="table-container deposit-table">
+    <div class="table-header">
+      <h2 style="color:var(--deposit-header)">
+        Deposits <span class="count" id="deposit-count"></span>
+      </h2>
+      <div class="table-actions">
+        <button class="btn btn-sm" onclick="addRow('deposits')">+ Add Row</button>
+        <button class="btn btn-sm" onclick="copyTable('deposits')">Copy</button>
+        <button class="btn btn-sm" onclick="downloadCSV('deposits')">Download CSV</button>
+      </div>
+    </div>
+    <div class="table-wrapper">
+      <table id="deposits-table">
+        <thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Amount</th><th style="width:36px"></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<p class="privacy-note">
+  &#128274; Your PDF is processed entirely in your browser using PDF.js. No data is uploaded anywhere.
+</p>
+
+<script type="module">
+// ── PDF.js Setup ──
+const pdfjsLib = await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs');
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
+
+// ── State ──
+let rawTextItems = [];    // all text items across pages [{str, x, y, w, h, page}, ...]
+let detectedColumns = []; // [{label, xMin, xMax}, ...]
+let columnMapping = { date: -1, description: -1, withdrawal: -1, deposit: -1, balance: -1 };
+let parsedWithdrawals = [];
+let parsedDeposits = [];
+
+// ── DOM ──
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const statusEl = document.getElementById('status');
+const mappingSection = document.getElementById('column-mapping');
+const mappingFields = document.getElementById('mapping-fields');
+const tablesSection = document.getElementById('tables-section');
+
+// ── File Handling ──
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type === 'application/pdf') processFile(file);
+  else showStatus('Please drop a PDF file.', 'error');
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) processFile(e.target.files[0]);
+});
+
+async function processFile(file) {
+  showStatus('Reading PDF...', 'info');
+  try {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    rawTextItems = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const viewport = page.getViewport({ scale: 1.0 });
+      for (const item of content.items) {
+        if (!item.str || !item.str.trim()) continue;
+        const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+        rawTextItems.push({
+          str: item.str.trim(),
+          x: Math.round(tx[4] * 10) / 10,
+          y: Math.round((viewport.height - tx[5]) * 10) / 10,  // flip y so top=0
+          w: item.width || 0,
+          h: item.height || 0,
+          page: i
+        });
+      }
+    }
+    if (rawTextItems.length === 0) {
+      showStatus('No text found in PDF. It might be a scanned image (not supported).', 'error');
+      return;
+    }
+    showStatus(`Extracted ${rawTextItems.length} text elements from ${pdf.numPages} page(s). Detecting columns...`, 'info');
+    detectAndParse();
+  } catch (err) {
+    showStatus('Error reading PDF: ' + err.message, 'error');
+    console.error(err);
+  }
+}
+
+// ── Row Grouping ──
+function groupIntoRows(items, yTolerance = 3) {
+  const sorted = [...items].sort((a, b) => a.page - b.page || a.y - b.y || a.x - b.x);
+  const rows = [];
+  let currentRow = [];
+  let currentY = -Infinity;
+  let currentPage = -1;
+
+  for (const item of sorted) {
+    if (item.page !== currentPage || Math.abs(item.y - currentY) > yTolerance) {
+      if (currentRow.length) rows.push(currentRow);
+      currentRow = [item];
+      currentY = item.y;
+      currentPage = item.page;
+    } else {
+      currentRow.push(item);
+    }
+  }
+  if (currentRow.length) rows.push(currentRow);
+
+  // sort items within each row by x
+  for (const row of rows) row.sort((a, b) => a.x - b.x);
+  return rows;
+}
+
+// ── Column Detection ──
+const HEADER_PATTERNS = {
+  date: /^date$/i,
+  description: /^(description|details|transaction\s*details?|particulars)$/i,
+  withdrawal: /^(withdrawal|withdrawals|debit|debits|charges|amount\s*deducted)$/i,
+  deposit: /^(deposit|deposits|credit|credits|amount\s*added)$/i,
+  balance: /^(balance|closing\s*balance|running\s*balance)$/i,
+};
+
+function detectColumns() {
+  const rows = groupIntoRows(rawTextItems);
+
+  // Collect all distinct x positions
+  const xPositions = rawTextItems.map(it => it.x);
+
+  // Try header-based detection first
+  // Look for a row that has at least 2 header-like words
+  let headerRow = null;
+  let headerScore = 0;
+
+  for (const row of rows.slice(0, Math.min(rows.length, 60))) {
+    let score = 0;
+    const rowText = row.map(it => it.str).join(' ');
+    for (const pat of Object.values(HEADER_PATTERNS)) {
+      for (const item of row) {
+        if (pat.test(item.str.trim())) score++;
+      }
+    }
+    // Also check combined adjacent items (some PDFs split headers)
+    if (score > headerScore) {
+      headerScore = score;
+      headerRow = row;
+    }
+  }
+
+  const mapping = { date: -1, description: -1, withdrawal: -1, deposit: -1, balance: -1 };
+  const columns = [];
+
+  if (headerRow && headerScore >= 2) {
+    // Build columns from the header row
+    for (const item of headerRow) {
+      const txt = item.str.trim();
+      let role = null;
+      for (const [key, pat] of Object.entries(HEADER_PATTERNS)) {
+        if (pat.test(txt)) { role = key; break; }
+      }
+      columns.push({ label: txt, x: item.x, role });
+    }
+  }
+
+  if (columns.filter(c => c.role).length < 2) {
+    // Fallback: positional clustering
+    // Use x-coordinate histogram to find column boundaries
+    return detectColumnsByPosition(rows, mapping);
+  }
+
+  // Assign column indices based on x-position order
+  columns.sort((a, b) => a.x - b.x);
+  for (let i = 0; i < columns.length; i++) {
+    if (columns[i].role) mapping[columns[i].role] = i;
+  }
+
+  detectedColumns = columns.map((c, i) => ({
+    label: c.label,
+    xCenter: c.x,
+    index: i
+  }));
+
+  columnMapping = mapping;
+  return { columns: detectedColumns, mapping, headerBased: true };
+}
+
+function detectColumnsByPosition(rows, mapping) {
+  // Cluster x-positions to find columns
+  const allX = [];
+  for (const item of rawTextItems) allX.push(item.x);
+  allX.sort((a, b) => a - b);
+
+  // Find gaps in x-positions to determine column boundaries
+  const xBuckets = {};
+  const bucketSize = 8;
+  for (const x of allX) {
+    const b = Math.round(x / bucketSize) * bucketSize;
+    xBuckets[b] = (xBuckets[b] || 0) + 1;
+  }
+
+  // Find prominent x clusters (column start positions)
+  const clusters = Object.entries(xBuckets)
+    .map(([x, count]) => ({ x: +x, count }))
+    .filter(c => c.count > rows.length * 0.1) // at least 10% of rows
+    .sort((a, b) => a.x - b.x);
+
+  if (clusters.length < 2) {
+    // Not enough structure found
+    detectedColumns = [{ label: 'Column 1', xCenter: 0, index: 0 }];
+    return { columns: detectedColumns, mapping, headerBased: false };
+  }
+
+  detectedColumns = clusters.map((c, i) => ({
+    label: `Column ${i + 1}`,
+    xCenter: c.x,
+    index: i
+  }));
+
+  // Heuristic assignment: leftmost is date, next is description, rest are amounts
+  if (clusters.length >= 3) {
+    mapping.date = 0;
+    mapping.description = 1;
+    // Try to identify withdrawal vs deposit by looking at data
+    // For now assign rightmost as balance, and work backwards
+    if (clusters.length >= 5) {
+      mapping.withdrawal = 2;
+      mapping.deposit = 3;
+      mapping.balance = 4;
+    } else if (clusters.length === 4) {
+      mapping.withdrawal = 2;
+      mapping.deposit = 3;
+      mapping.balance = -1;
+    } else {
+      mapping.withdrawal = 2;
+    }
+  }
+
+  columnMapping = mapping;
+  return { columns: detectedColumns, mapping, headerBased: false };
+}
+
+// ── Parsing ──
+const DATE_REGEX = /^(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[.\s]?\s*\d{1,2}(?:[,\s]+\d{2,4})?|\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})$/i;
+const AMOUNT_REGEX = /^-?\$?\s*[\d,]+\.\d{2}$/;
+
+function parseAmount(str) {
+  if (!str) return null;
+  const cleaned = str.replace(/[$,\s]/g, '');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : num;
+}
+
+function isDate(str) {
+  return DATE_REGEX.test(str.trim());
+}
+
+function isAmount(str) {
+  return AMOUNT_REGEX.test(str.trim());
+}
+
+function assignItemToColumn(item, colBoundaries) {
+  // Find closest column by x position
+  let bestCol = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < colBoundaries.length; i++) {
+    const dist = Math.abs(item.x - colBoundaries[i]);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestCol = i;
+    }
+  }
+  return bestCol;
+}
+
+function detectAndParse() {
+  const result = detectColumns();
+
+  // Show column mapping UI
+  showMappingUI();
+
+  // Auto-parse if we have enough info
+  if (columnMapping.date >= 0 && (columnMapping.withdrawal >= 0 || columnMapping.deposit >= 0)) {
+    parseTransactions();
+  } else {
+    showStatus('Could not auto-detect all columns. Please assign columns manually below.', 'info');
+  }
+}
+
+function parseTransactions() {
+  const rows = groupIntoRows(rawTextItems);
+  const colCenters = detectedColumns.map(c => c.xCenter);
+
+  parsedWithdrawals = [];
+  parsedDeposits = [];
+
+  let lastDate = '';
+
+  for (const row of rows) {
+    // Assign each item to a column
+    const colValues = new Array(detectedColumns.length).fill('');
+    for (const item of row) {
+      const col = assignItemToColumn(item, colCenters);
+      colValues[col] = colValues[col] ? colValues[col] + ' ' + item.str : item.str;
+    }
+
+    // Extract fields based on mapping
+    const dateVal = columnMapping.date >= 0 ? (colValues[columnMapping.date] || '').trim() : '';
+    const descVal = columnMapping.description >= 0 ? (colValues[columnMapping.description] || '').trim() : '';
+    const wdVal = columnMapping.withdrawal >= 0 ? (colValues[columnMapping.withdrawal] || '').trim() : '';
+    const dpVal = columnMapping.deposit >= 0 ? (colValues[columnMapping.deposit] || '').trim() : '';
+
+    // Skip header rows and non-transaction rows
+    if (!descVal && !wdVal && !dpVal) continue;
+    if (HEADER_PATTERNS.date.test(dateVal) || HEADER_PATTERNS.description.test(descVal)) continue;
+
+    // Track running date for multi-line transactions
+    const currentDate = isDate(dateVal) ? dateVal : lastDate;
+    if (isDate(dateVal)) lastDate = dateVal;
+
+    const wdAmount = parseAmount(wdVal);
+    const dpAmount = parseAmount(dpVal);
+
+    // If this row has neither a valid amount nor looks like a real transaction line, check
+    // if the description column has a meaningful value (continuation lines)
+    if (wdAmount === null && dpAmount === null) {
+      // Could be a description continuation — append to last transaction
+      if (descVal && !isAmount(descVal)) {
+        const lastList = parsedWithdrawals.length > parsedDeposits.length ? parsedWithdrawals : parsedDeposits;
+        const target = parsedWithdrawals.length && (!parsedDeposits.length ||
+          parsedWithdrawals[parsedWithdrawals.length - 1] !== undefined)
+          ? parsedWithdrawals : parsedDeposits;
+        if (target.length > 0) {
+          target[target.length - 1].description += ' ' + descVal;
+        }
+      }
+      continue;
+    }
+
+    if (wdAmount !== null && wdAmount > 0) {
+      parsedWithdrawals.push({ date: currentDate, description: descVal, amount: wdAmount });
+    }
+    if (dpAmount !== null && dpAmount > 0) {
+      parsedDeposits.push({ date: currentDate, description: descVal, amount: dpAmount });
+    }
+
+    // Handle single amount column — use sign or column to separate
+    if (columnMapping.withdrawal >= 0 && columnMapping.deposit < 0 && columnMapping.withdrawal === columnMapping.deposit) {
+      // single column mode, already handled above
+    }
+  }
+
+  // If no separate withdrawal/deposit columns detected, try single-amount-column heuristic
+  if (parsedWithdrawals.length === 0 && parsedDeposits.length === 0) {
+    parseSingleAmountColumn(rows, colCenters);
+  }
+
+  renderTables();
+
+  const total = parsedWithdrawals.length + parsedDeposits.length;
+  if (total > 0) {
+    showStatus(`Found ${parsedWithdrawals.length} withdrawal(s) and ${parsedDeposits.length} deposit(s).`, 'success');
+  } else {
+    showStatus('No transactions detected. Try adjusting column mappings below.', 'error');
+  }
+}
+
+function parseSingleAmountColumn(rows, colCenters) {
+  // Some statements have a single "Amount" column with +/- or separate DR/CR indicators
+  // Try to find any column with numeric values
+  for (const row of rows) {
+    const colValues = new Array(detectedColumns.length).fill('');
+    for (const item of row) {
+      const col = assignItemToColumn(item, colCenters);
+      colValues[col] = colValues[col] ? colValues[col] + ' ' + item.str : item.str;
+    }
+
+    const dateVal = columnMapping.date >= 0 ? (colValues[columnMapping.date] || '').trim() : '';
+    const descVal = columnMapping.description >= 0 ? (colValues[columnMapping.description] || '').trim() : '';
+
+    if (!descVal) continue;
+
+    // Find any amount in remaining columns
+    for (let i = 0; i < colValues.length; i++) {
+      if (i === columnMapping.date || i === columnMapping.description) continue;
+      const amt = parseAmount(colValues[i]);
+      if (amt !== null && amt !== 0) {
+        const entry = { date: dateVal, description: descVal, amount: Math.abs(amt) };
+        if (colValues[i].includes('-') || amt < 0) {
+          parsedWithdrawals.push(entry);
+        } else {
+          parsedDeposits.push(entry);
+        }
+        break;
+      }
+    }
+  }
+}
+
+// ── Column Mapping UI ──
+function showMappingUI() {
+  mappingSection.style.display = 'block';
+  const roles = ['date', 'description', 'withdrawal', 'deposit', 'balance'];
+  const roleLabels = { date: 'Date', description: 'Description', withdrawal: 'Withdrawal', deposit: 'Deposit', balance: 'Balance' };
+
+  mappingFields.innerHTML = '';
+  for (const role of roles) {
+    const div = document.createElement('div');
+    div.className = 'mapping-row';
+
+    const label = document.createElement('label');
+    label.textContent = roleLabels[role];
+    div.appendChild(label);
+
+    const select = document.createElement('select');
+    select.dataset.role = role;
+
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '-1';
+    noneOpt.textContent = '— Not present —';
+    select.appendChild(noneOpt);
+
+    for (let i = 0; i < detectedColumns.length; i++) {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = detectedColumns[i].label;
+      if (columnMapping[role] === i) opt.selected = true;
+      select.appendChild(opt);
+    }
+    div.appendChild(select);
+    mappingFields.appendChild(div);
+  }
+}
+
+window.applyMapping = function() {
+  const selects = mappingFields.querySelectorAll('select');
+  for (const sel of selects) {
+    columnMapping[sel.dataset.role] = parseInt(sel.value);
+  }
+  parseTransactions();
+};
+
+window.resetMapping = function() {
+  detectAndParse();
+};
+
+// ── Table Rendering ──
+function renderTables() {
+  tablesSection.style.display = 'block';
+  renderTable('withdrawals', parsedWithdrawals);
+  renderTable('deposits', parsedDeposits);
+}
+
+function renderTable(type, data) {
+  const tbody = document.querySelector(`#${type}-table tbody`);
+  const countEl = document.getElementById(`${type === 'withdrawals' ? 'withdrawal' : 'deposit'}-count`);
+
+  tbody.innerHTML = '';
+  countEl.textContent = `(${data.length})`;
+
+  let total = 0;
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    total += row.amount;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td contenteditable="true" style="min-width:80px;white-space:nowrap">${escapeHtml(row.date)}</td>
+      <td contenteditable="true" style="min-width:200px">${escapeHtml(row.description)}</td>
+      <td contenteditable="true" class="cost" style="min-width:80px">${row.amount.toFixed(2)}</td>
+      <td><button class="row-delete" data-type="${type}" data-index="${i}" title="Delete row">&times;</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  // Total row
+  if (data.length > 0) {
+    const tr = document.createElement('tr');
+    tr.style.fontWeight = '600';
+    tr.style.borderTop = '2px solid var(--border)';
+    tr.innerHTML = `
+      <td></td>
+      <td style="text-align:right">Total</td>
+      <td class="cost">${total.toFixed(2)}</td>
+      <td></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  // Attach delete handlers
+  tbody.querySelectorAll('.row-delete').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const t = this.dataset.type;
+      const idx = parseInt(this.dataset.index);
+      if (t === 'withdrawals') parsedWithdrawals.splice(idx, 1);
+      else parsedDeposits.splice(idx, 1);
+      renderTables();
+    });
+  });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ── Get Table Data (reads from DOM to capture edits) ──
+function getTableData(type) {
+  const tbody = document.querySelector(`#${type}-table tbody`);
+  const rows = [];
+  for (const tr of tbody.querySelectorAll('tr')) {
+    const cells = tr.querySelectorAll('td[contenteditable]');
+    if (cells.length < 3) continue; // skip total row
+    rows.push({
+      date: cells[0].textContent.trim(),
+      description: cells[1].textContent.trim(),
+      amount: cells[2].textContent.trim()
+    });
+  }
+  return rows;
+}
+
+// ── CSV Export ──
+function toCSV(data) {
+  const lines = ['Date,Description,Amount'];
+  for (const row of data) {
+    const desc = '"' + row.description.replace(/"/g, '""') + '"';
+    lines.push(`${row.date},${desc},${row.amount}`);
+  }
+  return lines.join('\n');
+}
+
+window.downloadCSV = function(type) {
+  const data = getTableData(type);
+  if (!data.length) { showToast('No data to export'); return; }
+  const csv = toCSV(data);
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${type}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast(`${type}.csv downloaded`);
+};
+
+window.copyTable = function(type) {
+  const data = getTableData(type);
+  if (!data.length) { showToast('No data to copy'); return; }
+  const tsv = data.map(r => `${r.date}\t${r.description}\t${r.amount}`).join('\n');
+  navigator.clipboard.writeText(tsv).then(() => {
+    showToast('Copied to clipboard (tab-separated)');
+  }).catch(() => {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = tsv;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    showToast('Copied to clipboard');
+  });
+};
+
+window.addRow = function(type) {
+  const entry = { date: '', description: '', amount: 0 };
+  if (type === 'withdrawals') parsedWithdrawals.push(entry);
+  else parsedDeposits.push(entry);
+  renderTables();
+  // Focus the new row's first cell
+  const tbody = document.querySelector(`#${type}-table tbody`);
+  const lastDataRow = tbody.querySelectorAll('tr');
+  if (lastDataRow.length >= 2) {
+    const newRow = lastDataRow[lastDataRow.length - 2]; // before total
+    const firstCell = newRow.querySelector('td[contenteditable]');
+    if (firstCell) firstCell.focus();
+  }
+};
+
+// ── Utilities ──
+function showStatus(msg, type) {
+  statusEl.textContent = msg;
+  statusEl.className = type;
+}
+
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2000);
+}
+</script>
+</body>
+</html>
