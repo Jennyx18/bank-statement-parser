@@ -26,23 +26,34 @@ if not shutil.which("java"):
     print("Install Java first: https://www.java.com/download/")
     sys.exit(1)
 
-try:
-    import tabula
-    import pandas
-except ImportError:
-    print("Installing tabula-py (one-time setup)...")
+def _pip_install(*packages):
     try:
         subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "tabula-py"],
+            [sys.executable, "-m", "pip", "install"] + list(packages),
             stdout=subprocess.DEVNULL,
         )
     except subprocess.CalledProcessError:
         subprocess.check_call(
             [sys.executable, "-m", "pip", "install",
-             "--break-system-packages", "tabula-py"],
+             "--break-system-packages"] + list(packages),
             stdout=subprocess.DEVNULL,
         )
-    import tabula
+
+try:
+    from tabula.io import read_pdf
+    import pandas
+except (ImportError, AttributeError):
+    print("Installing tabula-py (one-time setup)...")
+    # Remove conflicting 'tabula' package if present
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "uninstall", "-y", "tabula"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError:
+        pass
+    _pip_install("tabula-py", "pandas")
+    from tabula.io import read_pdf
     import pandas
     print("Done.\n")
 
@@ -106,12 +117,12 @@ def parse_pdf(file_bytes):
 
     try:
         # Try lattice mode first (for PDFs with table borders/lines)
-        dfs = tabula.read_pdf(tmp.name, pages='all', lattice=True,
+        dfs = read_pdf(tmp.name, pages='all', lattice=True,
                               multiple_tables=True, silent=True)
 
         # If lattice found nothing useful, try stream mode
         if not dfs or all(len(df) < 2 for df in dfs):
-            dfs = tabula.read_pdf(tmp.name, pages='all', stream=True,
+            dfs = read_pdf(tmp.name, pages='all', stream=True,
                                   multiple_tables=True, silent=True)
 
         if not dfs:
@@ -251,10 +262,10 @@ def reparse_with_mapping(file_bytes, col_mapping):
     tmp.close()
 
     try:
-        dfs = tabula.read_pdf(tmp.name, pages='all', lattice=True,
+        dfs = read_pdf(tmp.name, pages='all', lattice=True,
                               multiple_tables=True, silent=True)
         if not dfs or all(len(df) < 2 for df in dfs):
-            dfs = tabula.read_pdf(tmp.name, pages='all', stream=True,
+            dfs = read_pdf(tmp.name, pages='all', stream=True,
                                   multiple_tables=True, silent=True)
         if not dfs:
             return {'withdrawals': [], 'deposits': [], 'error': 'No tables found.'}
