@@ -21,9 +21,14 @@ from urllib.parse import parse_qs
 try:
     import pdfplumber
 except ImportError:
-    print("pdfplumber is required. Install it with:")
-    print("  pip install pdfplumber")
-    sys.exit(1)
+    print("Installing pdfplumber (one-time setup)...")
+    import subprocess
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install",
+        "--break-system-packages", "--quiet", "pdfplumber"
+    ])
+    import pdfplumber
+    print("Done.\n")
 
 PORT = 8765
 

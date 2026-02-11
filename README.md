@@ -19,10 +19,9 @@ It automatically:
 
 Uses [pdfplumber](https://github.com/jsvine/pdfplumber) for accurate table extraction. Much better at detecting columns, dates, and descriptions.
 
-**Requirements:** Python 3 + pdfplumber
+**Requirements:** Python 3 (pdfplumber is installed automatically on first run)
 
 ```bash
-pip install pdfplumber
 python3 bank_parser.py
 ```
 
